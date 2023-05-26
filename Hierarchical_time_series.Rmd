@@ -1,0 +1,185 @@
+---
+title: "Hierarchical time series"
+output: html_notebook
+---
+
+```{r}
+pacman::p_load(fpp2, hts, tidyverse, plotly)
+```
+
+
+Business planners and tourism authorities are interested in forecasts for the whole of Australia, for the states and the territories, and also for the zones. 
+
+plots below show the data disaggregated by state and total
+```{r}
+
+tourism <- visnights |> 
+  hts(characters = c(3,5))
+
+gg_tourism <- tourism |> 
+  aggts(levels = 0:1) |> 
+  autoplot(facet=TRUE) +
+  xlab("Year") + ylab("Millions") + ggtitle("Visitor nights in Australia")
+
+ggsave("./images/data_total.png", gg_tourism)
+```
+
+
+visitors by zone of each state
+```{r}
+set.seed(1)
+# color sample hex
+cols <- scales::hue_pal(direction = 1,c = 75,l = 58,h = c(0,360), h.start = 0)(ncol(visnights)) |>
+  sample()
+
+
+zone_state <- visnights  |>
+  as.tibble() |> 
+  pivot_longer(everything(), names_to = "Zone") |> 
+  mutate(Date = rep(time(visnights), NCOL(visnights)),
+         State = str_sub(Zone, start= 1, end = 3))  
+  
+zone_state_gg <- zone_state |> 
+  ggplot(aes(Date, value, group = Zone, colour = Zone)) + 
+  geom_line(size = 0.5) + 
+  facet_grid(State~., scales = "free_y") + 
+  scale_colour_manual(values = cols) + 
+  labs(title = "Visitors by Zone",
+       x = "Year", y = "Millions") +
+  theme(legend.text = element_text(size = 8))
+  
+
+ggsave("./images/zone_data.png", zone_state_gg)
+```
+
+
+
+```{r}
+train <- tourism |> 
+  window(end = c(2015,4))
+
+test <- tourism |> 
+  window(start = 2016)
+
+```
+
+
+```{r}
+rmse <- function(x, level){
+(aggts(x, levels = level) - aggts(test, levels = level))^2  |> 
+  mean() |> 
+  sqrt()
+}
+
+# bottom-up approach
+fc_arima_bu <- forecast(train, method="bu", fmethod="arima", h= 4)
+fc_ets_bu <- forecast(train, method="bu", fmethod="ets", h= 4)
+
+# Top-bottom approach
+fc_arima_td <- forecast(train, method="tdfp", fmethod="arima", h= 4)
+fc_ets_td <- forecast(train, method="tdfp", fmethod="ets", h= 4)
+
+#  Middle-out approach
+fc_arima_mo <- forecast(train, method="mo", fmethod="arima", h= 4, level = 1)
+fc_ets_mo <- forecast(train, method="mo", fmethod="ets", h= 4,level = 1)
+
+# optimal reconciliation approach
+fc_opt <- forecast(train)
+
+# total, state, zone
+Bottom_up_Arima= c(rmse(fc_arima_bu,0), rmse(fc_arima_bu,1), rmse(fc_arima_bu,2))
+Bottom_up_ETS <- c(rmse(fc_ets_bu,0), rmse(fc_ets_bu,1), rmse(fc_ets_bu,2))
+
+Top_down_Arima <- c(rmse(fc_arima_td,0), rmse(fc_arima_td,1), rmse(fc_arima_td,2))
+Top_down_ETS <- c(rmse(fc_ets_td,0), rmse(fc_ets_td,1), rmse(fc_ets_bu,2))
+
+Middle_out_Arima <- c(rmse(fc_arima_mo,0), rmse(fc_arima_mo,1), rmse(fc_arima_mo,2))
+Middle_out_ETS <- c(rmse(fc_ets_mo,0),rmse(fc_ets_mo,1),rmse(fc_ets_mo,2))
+
+# optimal reconciliation approach
+fc_opt <- forecast(train)
+Optimal_reconciliation  <- c(rmse(fc_opt,0),rmse(fc_opt,1),rmse(fc_opt,2))
+
+
+
+df <- data.frame(Bottom_up_Arima, Middle_out_Arima, Top_down_Arima,
+             Bottom_up_ETS, Middle_out_ETS, Top_down_ETS, Optimal_reconciliation)
+rownames(df) <- c("Total", "State", "Zone")
+
+
+knitr::kable(df, digits = 2, caption = "RMSE for models",)
+
+
+```
+
+
+
+```{r}
+fc_opt <- forecast(tourism)
+
+fc_opt_agg <- aggts(fc_opt, levels = 0:2)
+train_agg <- aggts(tourism, levels = 0:2)
+
+fc_opt_agg |> 
+  autoplot() + 
+  autolayer(train_agg)
+
+tourist_fc <- ts(rbind(train_agg, fc_opt_agg), start = start(train_agg), frequency = 4)
+
+p1 <- tourist_fc[,"Total"] |> 
+  autoplot() +
+  ggtitle("Visitor nights in regions of Australia") +
+  xlab("Year") + ylab("Total number of visit (in millions)") +
+  geom_vline(xintercept=2017, size= 1.2, col = "red") + 
+  scale_x_continuous(breaks=seq(1998,2018,by=2))
+
+p2 <- as.tibble(tourist_fc[,8:ncol(tourist_fc)]) |> 
+  gather(Zone) |> 
+  mutate(Date = rep(time(tourist_fc), 20), 
+         State = str_sub(Zone, 1, 3))  |> 
+  ggplot(aes(Date, value, group = Zone, colour = Zone)) + 
+  geom_line() + 
+  facet_grid(State~., scales = "free_y") + 
+  scale_colour_manual(values = cols) + 
+  scale_x_continuous(breaks=seq(1998,2018,by=2)) +
+  geom_vline(xintercept=2017 ,size= 1.2, col = "red") + 
+  labs(y = "Number of Visits (in millions)", x  ="Year") +
+  theme(legend.text = element_text(size = 10)) +
+  theme(legend.position = "bottom", legend.box = "horizontal", legend.margin = margin(0, 0, 0, 0))
+
+ggsave("./images/total.png", p1)
+ggsave("./images/zone.png", p2)
+
+```
+
+
+
+```{r}
+
+p3 <- as.tibble(tourist_fc[,2:7]) |> 
+  gather(State) |> 
+  mutate(Date = rep(time(tourist_fc), 6))  |> 
+  ggplot(aes(Date, value, group = )) + 
+  geom_line( ) + 
+  facet_grid(State~., scales = "free_y") + 
+  scale_colour_manual(values = cols) + 
+  scale_x_continuous(breaks=seq(1998,2018,by=2)) +
+  geom_vline(xintercept=2017 ,size= 1.2, col = "red") + 
+  labs(y = "Number of Visits (in millions)", x  ="Year") +
+  ggtitle("Visitor nights by states of Australia") + 
+  theme(legend.text = element_text(size = 8))
+
+p3
+
+ggsave("./images/state.png", p3)
+```
+
+
+
+
+
+
+
+
+
+
