@@ -1,24 +1,12 @@
----
-title: "Hierarchical time series"
-author: "Joaquin Sanchez"
-output: html_notebook
----
-
-```{r}
+## ------------------------------------------------------------------
 knitr::purl("Hierarchical_time_series.Rmd")
-```
 
 
-
-```{r}
+## ------------------------------------------------------------------
 pacman::p_load(fpp2, hts, tidyverse, plotly)
-```
 
 
-Business planners and tourism authorities are interested in forecasts for the whole of Australia, for the states and the territories, and also for the zones. 
-
-plots below show the data disaggregated by state and total
-```{r}
+## ------------------------------------------------------------------
 
 tourism <- visnights |> 
   hts(characters = c(3,5))
@@ -29,11 +17,9 @@ gg_tourism <- tourism |>
   xlab("Year") + ylab("Millions") + ggtitle("Visitor nights in Australia")
 
 ggsave("./images/data_total.png", gg_tourism)
-```
 
 
-visitors by zone of each state
-```{r}
+## ------------------------------------------------------------------
 set.seed(1)
 # color sample hex
 cols <- scales::hue_pal(direction = 1,c = 75,l = 58,h = c(0,360), h.start = 0)(ncol(visnights)) |>
@@ -57,21 +43,18 @@ zone_state_gg <- zone_state |>
   
 
 ggsave("./images/zone_data.png", zone_state_gg)
-```
 
 
-
-```{r}
+## ------------------------------------------------------------------
 train <- tourism |> 
   window(end = c(2015,4))
 
 test <- tourism |> 
   window(start = 2016)
 
-```
 
 
-```{r}
+## ------------------------------------------------------------------
 rmse <- function(x, level){
 (aggts(x, levels = level) - aggts(test, levels = level))^2  |> 
   mean() |> 
@@ -117,11 +100,9 @@ rownames(df) <- c("Total", "State", "Zone")
 knitr::kable(df, digits = 2, caption = "RMSE for models",)
 
 
-```
 
 
-
-```{r}
+## ------------------------------------------------------------------
 fc_opt <- forecast(tourism)
 
 fc_opt_agg <- aggts(fc_opt, levels = 0:2)
@@ -157,11 +138,9 @@ p2 <- as.tibble(tourist_fc[,8:ncol(tourist_fc)]) |>
 ggsave("./images/total.png", p1)
 ggsave("./images/zone.png", p2)
 
-```
 
 
-
-```{r}
+## ------------------------------------------------------------------
 
 p3 <- as.tibble(tourist_fc[,2:7]) |> 
   gather(State) |> 
@@ -179,14 +158,4 @@ p3 <- as.tibble(tourist_fc[,2:7]) |>
 p3
 
 ggsave("./images/state.png", p3)
-```
-
-
-
-
-
-
-
-
-
 
